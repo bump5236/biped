@@ -3,6 +3,7 @@ The scripts for Running and Walking
 
 ## Usage
 Create directory for git clone
+
 `$mkdir ~/git`  
 `$cd git`  
 `$git clone https://github.com/bump5236/biped`
