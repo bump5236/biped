@@ -8,6 +8,6 @@ Create directory for git clone
 `$cd git`  
 `$git clone https://github.com/bump5236/biped`
 
-`$mv biped/robot_assist ~/catkin_ws/src`
-`cd catkin_ws`
+`$mv biped/robot_assist ~/catkin_ws/src`  
+`cd catkin_ws`  
 `catkin_make`
