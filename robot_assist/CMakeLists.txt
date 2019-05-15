@@ -27,3 +27,7 @@ target_link_libraries(dxl_imu ${catkin_LIBRARIES})
 
 add_executable(imu_sub src/imu_sub.cpp)
 target_link_libraries(imu_sub ${catkin_LIBRARIES})
+
+add_executable(assist_dual src/assist_dual.cpp)
+target_link_libraries(assist_dual LINK_PUBLIC "/usr/local/lib/libdxl_x64_cpp.so")
+target_link_libraries(assist_dual ${catkin_LIBRARIES})
