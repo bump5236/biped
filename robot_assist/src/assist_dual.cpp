@@ -13,25 +13,36 @@
 
 // Control table address
 #define ADDR_TORQUE_ENABLE              64
+#define ADDR_OPERATING_MODE             11
+
+#define ADDR_CURRENT_LIMIT              38
+#define ADDR_GOAL_CURRENT               102
+#define ADDR_PRESENT_CURRENT            126
+
 #define ADDR_GOAL_POSITION              116
 #define ADDR_PRESENT_POSITION           132
 
-#define ADDR_OPERATING_MODE             11
-#define ADDR_GOAL_CURRENT               102
-#define ADDR_CURRENT_LIMIT              38
 // Protocol version
 #define PROTOCOL_VERSION                2.0
 
 // Default setting
-#define DXL_ID                          4
+#define DXL_ID1                         1
+#define DXL_ID2                         2
 #define BAUDRATE                        57600
-#define DEVICENAME                      "/dev/ttyUSB0"
+#define DEVICENAME1                     "/dev/ttyUSB0"
+#define DEVICENAME2                     "/dev/ttyUSB1"
 #define TORQUE_ENABLE                   1
 #define TORQUE_DISABLE                  0
 #define DXL_MOVING_STATUS_THRESHOLD     50
-#define DXL_OPERATING_MODE              5
-#define DXL_CURRENT_LIMIT               100
+
+#define DXL_TORQ_MODE                   0
+#define DXL_EXPOS_MODE                  5
+#define DXL_CURRENT_LIMIT               600
 #define ESC_ASCII_VALUE                 0x1b
+
+const long unsigned int  SAMPLING_TIME_USEC = 1000;                   // sampling time [us]
+const double             TS      =0.001*0.001*SAMPLING_TIME_USEC;     // sampling time [s]
+const long int           LOOP_COUNT = 1*3600*1000000/SAMPLING_TIME_USEC;  // performance time 120[s]
 
 /*--- 構造体宣言 ----*/
 struct data_parameter{
@@ -47,10 +58,6 @@ struct data_parameter{
   double gyro_x;
   double gyro_y;
   double gyro_z;
-  double quat_x;
-  double quat_y;
-  double quat_z;
-  double quat_w;
 
   double roll;
   double pitch;
@@ -58,17 +65,34 @@ struct data_parameter{
 
   int32_t tgt_ang1;
   int32_t ang1;
-  uint16_t tgt_torq1;
-  uint16_t torq1;
+  double tgt_torq1;
+  double torq1;
 
   int32_t tgt_ang2;
   int32_t ang2;
-  uint16_t tgt_torq2;
-  uint16_t torq2;
+  double tgt_torq2;
+  double torq2;
 
   int act1;
   int act2;
 };
+
+
+class IMU_data{
+public:
+  double accl_x;
+  double accl_y;
+  double accl_z;
+
+  double gyro_x;
+  double gyro_y;
+  double gyro_z;
+
+  double roll;
+  double pitch;
+  double yaw;
+};
+
 
 /*--- 関数宣言 ---*/
 void get_memory(void);
@@ -77,155 +101,239 @@ double get_time_sec(int mode);
 // double ang_vc(double t, int run_mode, int motor_number);  //motorの処理
 int get_date(int mode);
 char kbhit(void);
+int getch();
 void callback(const sensor_msgs::Imu& data);
+void errorProc(int result, uint8 error);
 
-struct data_parameter *contrl_data;
 
 /*--- 変数定義 ---*/
 int counter = 0, callback_counter = 0;
 
-int main(int argc, char **argv) {
-  ros::init(argc, argv, "listener");
-  ros::NodeHandle n;
-  ros::Subscriber sub = n.subscribe("imu/data", 1, callback);     //subscribe[1]はバッファサイズ
-  ros::Rate r(100);        // 100Hz
+// initialize
+struct data_parameter *ctrl_data;
+IMU_data imu_data;
 
-  dynamixel::PortHandler *portHandler = dynamixel::PortHandler::getPortHandler(DEVICENAME);
-  dynamixel::PacketHandler *packetHandler = dynamixel::PacketHandler::getPacketHandler(PROTOCOL_VERSION);
+
+
+int main(int argc, char **argv) {
+
+
+  get_memory();
+
+  int i = 0;
+  double a = 0.0401;
+  double b = 0.4392;
+  double c = 0.0001;
 
   int dxl_comm_result = COMM_TX_FAIL;
   uint8_t dxl_error, dxl_mode;
-  int32_t dxl_present_position = 0;
-  uint16_t dxl_Max_current;
+  uint16_t C1, C2;
+  uint16_t aC1, aC2;
 
-  // Open port
-  if (portHandler->openPort()) {
-    printf("Succeeded to open the port!\n");
+
+
+
+
+  // ROSsetting
+  ros::init(argc, argv, "listener");
+  ros::NodeHandle n;
+  ros::Subscriber sub = n.subscribe("imu/data", 1, callback);  //subscribe[1]はバッファサイズ
+  ros::Rate r(100);  // 100Hz
+
+  // DXLsetting
+  dynamixel::PortHandler *portHandler1 = dynamixel::PortHandler::getPortHandler(DEVICENAME1);
+  dynamixel::PortHandler *portHandler2 = dynamixel::PortHandler::getPortHandler(DEVICENAME2);
+  dynamixel::PacketHandler *packetHandler = dynamixel::PacketHandler::getPacketHandler(PROTOCOL_VERSION);
+
+
+  // Open port1, port2
+  if (portHandler1->openPort()) {
+    printf("Succeeded to open the port1!\n");
   }
   else {
-    printf("Failed to open the port!\n");
+    printf("Failed to open the port1!\n");
+    printf("Press any key to terminate...\n");
+    getch();
+    return 0;
+  }
+  if (portHandler2->openPort()) {
+    printf("Succeeded to open the port2!\n");
+  }
+  else {
+    printf("Failed to open the port2!\n");
     printf("Press any key to terminate...\n");
     getch();
     return 0;
   }
 
-  // Set port baudrate
-  if (portHandler->setBaudRate(BAUDRATE)) {
-    printf("Succeeded to change the baudrate!\n");
+  // Set port1, port2 baudrate
+  if (portHandler1->setBaudRate(BAUDRATE)) {
+    printf("Succeeded to change the baudrate1!\n");
   }
   else {
-    printf("Failed to change the baudrate!\n");
+    printf("Failed to change the baudrate1!\n");
     printf("Press any key to terminate...\n");
     getch();
     return 0;
   }
-  // Enable Dynamixel Torque
-  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler, DXL_ID, ADDR_TORQUE_ENABLE, TORQUE_ENABLE, &dxl_error);
-  if (dxl_comm_result != COMM_SUCCESS) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-  }
-  else if (dxl_error != 0) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_error));
+  if (portHandler2->setBaudRate(BAUDRATE)) {
+    printf("Succeeded to change the baudrate2!\n");
   }
   else {
-    printf("Dynamixel has been successfully connected \n");
+    printf("Failed to change the baudrate2!\n");
+    printf("Press any key to terminate...\n");
+    getch();
+    return 0;
   }
+
+  // ID1----------------------------------------------
 
   // MODE
-  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler, DXL_ID, ADDR_OPERATING_MODE, DXL_OPERATING_MODE, &dxl_error);
-  if (dxl_comm_result != COMM_SUCCESS) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-  }
-  else if (dxl_error != 0) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_error));
-  }
-  else {
-    dxl_comm_result = packetHandler->read1ByteTxRx(portHandler, DXL_ID, ADDR_OPERATING_MODE, &dxl_mode, &dxl_error);
-    printf("Operatind Mode is %d\n", dxl_mode);
-  }
-
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler1, DXL_ID1, ADDR_OPERATING_MODE, DXL_OPERATING_MODE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
   // Setting DXL_CURRENT_LIMIT
-  dxl_comm_result = packetHandler->write2ByteTxRx(portHandler, DXL_ID, ADDR_CURRENT_LIMIT, DXL_CURRENT_LIMIT, &dxl_error);
-  if (dxl_comm_result != COMM_SUCCESS) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-  }
-  else if (dxl_error != 0) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_error));
-  }
-  else {
-    dxl_comm_result = packetHandler->read2ByteTxRx(portHandler, DXL_ID, ADDR_CURRENT_LIMIT, &dxl_Max_current, &dxl_error);
-    printf("Limit of current is %d\n", dxl_Max_current);
-  }
+  dxl_comm_result = packetHandler->write2ByteTxRx(portHandler1, DXL_ID1, ADDR_CURRENT_LIMIT, DXL_CURRENT_LIMIT, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  // Enable Dynamixel Torque
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler1, DXL_ID1, ADDR_TORQUE_ENABLE, TORQUE_ENABLE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  printf("Succeeded ready ID:%d \n", DXL_ID1);
+
+  // ID2----------------------------------------------
+
+  // MODE
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler2, DXL_ID2, ADDR_OPERATING_MODE, DXL_OPERATING_MODE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  // Setting DXL_CURRENT_LIMIT
+  dxl_comm_result = packetHandler->write2ByteTxRx(portHandler2, DXL_ID2, ADDR_CURRENT_LIMIT, DXL_CURRENT_LIMIT, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  // Enable Dynamixel Torque
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler2, DXL_ID2, ADDR_TORQUE_ENABLE, TORQUE_ENABLE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  printf("Succeeded ready ID:%d \n", DXL_ID2);
+
+
+  // ---------------------------------------------------------------------------------
 
   while(false == ros::isShuttingDown()) {
-    // printf("Press any key to continue! (or press ESC to quit!)\n");
-    // if (getch() == ESC_ASCII_VALUE)
-    //   break;
-    counter += 1;
-    printf("%d\n", counter);
-    ros::spinOnce();
-    st_clock = clock();
-    int dxl_goal_position = roll*4096/(2*M_PI);
-    dxl_comm_result = packetHandler->write4ByteTxRx(portHandler, DXL_ID, ADDR_GOAL_POSITION, dxl_goal_position, &dxl_error);
-    ed_clock = clock();
-    printf("write_time:%f\n",(double)(ed_clock - st_clock)/CLOCKS_PER_SEC);
-    // sleep(1);
-    if (dxl_comm_result != COMM_SUCCESS) {
-      printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-    }
-    else if (dxl_error != 0) {
-      printf("%s\n", packetHandler->getTxRxResult(dxl_error));
-    }
-    dxl_comm_result = packetHandler->read4ByteTxRx(portHandler, DXL_ID, ADDR_PRESENT_POSITION, (uint32_t*)&dxl_present_position, &dxl_error);
-    printf("[ID:%03d] Roll:%03f, GoalPos:%03d  PresPos:%03d\n", DXL_ID, roll, dxl_goal_position, dxl_present_position);
+    printf("Press any key to continue! (or press ESC to quit!)\n");
 
-    // do {
-    //   // Read present position
-    //   dxl_comm_result = packetHandler->read4ByteTxRx(portHandler, DXL_ID, ADDR_PRESENT_POSITION, (uint32_t*)&dxl_present_position, &dxl_error);
-    //   if (dxl_comm_result != COMM_SUCCESS) {
-    //     printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-    //   }
-    //   else if (dxl_error != 0) {
-    //     printf("%s\n", packetHandler->getTxRxResult(dxl_error));
-    //   }
-    //
-    //   printf("[ID:%03d] GoalPos:%03d  PresPos:%03d\n", DXL_ID, dxl_goal_position, dxl_present_position);
-    //
-    // }while((abs(dxl_goal_position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD));
+    /*位置制御でだんだん降ろす*/
 
-    r.sleep();
+    if(getch() == ESC_ASCII_VALUE) break;
+
+    get_time_sec(0);
+
+    for (i = 0; i < LOOP_COUNT ;i++){
+
+      ctrl_data[i].time = get_time_sec(1);
+
+      // IMUデータ取得----------------------
+      ros::spinOnce();
+
+      ctrl_data[i].accl_x = imu_data.accl_x;
+      ctrl_data[i].accl_y = imu_data.accl_y;
+      ctrl_data[i].accl_z = imu_data.accl_z;
+
+      ctrl_data[i].gyro_x = imu_data.gyro_x;
+      ctrl_data[i].gyro_y = imu_data.gyro_y;
+      ctrl_data[i].gyro_z = imu_data.gyro_z;
+
+      ctrl_data[i].roll   = imu_data.roll*360/(2*M_PI);
+      ctrl_data[i].pitch  = imu_data.pitch*360/(2*M_PI);
+      ctrl_data[i].yaw    = imu_data.yaw*360/(2*M_PI);
+
+
+      // Current setting-------------------
+      ctrl_data[i].tgt_torq1 = ctrl_data[i].roll*0.01;
+      ctrl_data[i].tgt_torq2 = ctrl_data[i].roll*0.02;
+
+      C1 = (a*ctrl_data[i].tgt_torq1^2 + b*ctrl_data[i].tgt_torq1 - c)*1000/2.69;
+      C2 = (a*ctrl_data[i].tgt_torq2^2 + b*ctrl_data[i].tgt_torq2 - c)*1000/2.69;
+
+
+      // torq------------------------------
+      dxl_comm_result = packetHandler->write2ByteTxRx(portHandler1, DXL_ID1, ADDR_GOAL_CURRENT, C1, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+
+      dxl_comm_result = packetHandler->write2ByteTxRx(portHandler2, DXL_ID2, ADDR_GOAL_CURRENT, C2, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+
+
+      // read------------------------------
+      dxl_comm_result = packetHandler->read2ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_CURRENT, &aC1, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+      ctrl_data[i].torq1 = (- b + sqrt(b^2-4*a*(c-aC1*2.69/1000)))/2*a
+
+      dxl_comm_result = packetHandler->read2ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_CURRENT, &aC2, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+      ctrl_data[i].torq2 = (- b + sqrt(b^2-4*a*(c-aC2*2.69/1000)))/2*a
+
+
+      printf("time=%03.4f Roll:%03f Tgt_torq1:%03f Torq1:%03f Tgt_torq2:%03f Torq2:%03f\n",
+              ctrl_data[i].time,
+              ctrl_data[i].roll,
+              ctrl_data[i].tgt_torq1,
+              ctrl_data[i].torq1,
+              ctrl_data[i].tgt_torq2,
+              ctrl_data[i].torq2);
+
+
+      // -----------------------------------
+
+      /*エラー処理*/
+
+      // -----------------------------------
+
+      stop_count=i;
+
+      switch(kbhit()){
+        case 'q':
+          mode = 99;
+          break;
+        }
+      if(mode == 99)  break;
+
+      r.sleep();
+    }
+
+    /*引き上げたら終わり*/
+    break
   }
+
+
+  // End Process--------------------------------------
 
   // Disable Dynamixel Torque
-  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler, DXL_ID, ADDR_TORQUE_ENABLE, TORQUE_DISABLE, &dxl_error);
-  if (dxl_comm_result != COMM_SUCCESS) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_comm_result));
-  }
-  else if (dxl_error != 0) {
-    printf("%s\n", packetHandler->getTxRxResult(dxl_error));
-  }
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler1, DXL_ID1, ADDR_TORQUE_ENABLE, TORQUE_DISABLE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  dxl_comm_result = packetHandler->write1ByteTxRx(portHandler2, DXL_ID2, ADDR_TORQUE_ENABLE, TORQUE_DISABLE, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
 
   // Close port
-  portHandler->closePort();
-  printf("Succeeded Closeport!\n");
+  portHandler1->closePort();
+  printf("Succeeded Closeport1!\n");
+  portHandler2->closePort();
+  printf("Succeeded Closeport2!\n");
 
   return 0;
 }
 
 
 // -------------------------------------------------------------------------------------
-// IMUデータ取得
 void callback(const sensor_msgs::Imu& data) {
 
+  double quat_x, quat_y, quat_z, quat_w;
+
   // Linear acceleration
-  accl_x = data.linear_acceleration.x;
-  accl_y = data.linear_acceleration.y;
-  accl_z = data.linear_acceleration.z;
+  imu_data.accl_x = data.linear_acceleration.x;
+  imu_data.accl_y = data.linear_acceleration.y;
+  imu_data.accl_z = data.linear_acceleration.z;
 
   // Angular velocity
-  gyro_x = data.angular_velocity.x;
-  gyro_y = data.angular_velocity.y;
-  gyro_z = data.angular_velocity.z;
+  imu_data.gyro_x = data.angular_velocity.x;
+  imu_data.gyro_y = data.angular_velocity.y;
+  imu_data.gyro_z = data.angular_velocity.z;
 
   // Orientation (not provided)
   quat_x = data.orientation.x;
@@ -234,33 +342,33 @@ void callback(const sensor_msgs::Imu& data) {
   quat_w = data.orientation.w;
 
   tf::Quaternion quat(quat_x, quat_y, quat_z, quat_w);
-  tf::Matrix3x3(quat).getRPY(roll, pitch, yaw);
+  tf::Matrix3x3(quat).getRPY(imu_data.roll, imu_data.pitch, imu_data.yaw);
 
   callback_counter += 1;
   printf("%d\n", callback_counter);
   // printf(
   //   "accl_x:%f\naccl_y:%f\naccl_z:%f\ngyro_x:%f\ngyro_y:%f\ngyro_z:%f\nroll:%f\npitch:%f\nyaw:%f\n",
-  //   accl_x,
-  //   accl_y,
-  //   accl_z,
-  //   gyro_x,
-  //   gyro_y,
-  //   gyro_z,
-  //   roll,
-  //   pitch,
-  //   yaw
+  //   imu_data.accl_x,
+  //   imu_data.accl_y,
+  //   imu_data.accl_z,
+  //   imu_data.gyro_x,
+  //   imu_data.gyro_y,
+  //   imu_data.gyro_z,
+  //   imu_data.roll,
+  //   imu_data.pitch,
+  //   imu_data.yaw
   // );
 }
 
 void get_memory(void){
-  if ((contrl_data = (struct data_parameter*)calloc(LOOP_COUNT+100, sizeof(struct data_parameter)))  == NULL) {
-    perror("calloc control_data");
+  if ((ctrl_data = (struct data_parameter*)calloc(LOOP_COUNT+100, sizeof(struct data_parameter)))  == NULL) {
+    perror("calloc ctrl_data");
     exit(1);
   }
 }
 
 void free_memory(void){
-  free(contrl_data);
+  free(ctrl_data);
 }
 
 double get_time_sec(int mode){
@@ -302,6 +410,18 @@ char kbhit(void){
     return 0;
 }
 
+int getch(){
+  struct termios oldt, newt;
+  int ch;
+  tcgetattr(STDIN_FILENO, &oldt);
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+  ch = getchar();
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+  return ch;
+}
+
 int get_date(int mode){
   struct tm *date;
   time_t now;
@@ -324,4 +444,13 @@ int get_date(int mode){
   if(mode == 5) return minute;
   if(mode == 6) return second;
   return 0;
+}
+
+void errorProc(int result, uint8_t error){
+ if (result != COMM_SUCCESS) {
+   printf("%s\n", packetHandler->getTxRxResult(result));
+ }
+ else if (error != 0) {
+   printf("%s\n", packetHandler->getTxRxResult(error));
+ }
 }
