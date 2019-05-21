@@ -3,6 +3,7 @@
 #include <math.h>
 #include <tf/transform_broadcaster.h>
 #include "dynamixel_sdk/dynamixel_sdk.h"
+#include "robot_assist/matplotlib.hpp"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -10,6 +11,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+
+#define CPU_USEC_PER_CLOCK 9.375348e-04
+
 
 // Control table address
 #define ADDR_TORQUE_ENABLE              64
@@ -26,8 +30,8 @@
 #define PROTOCOL_VERSION                2.0
 
 // Default setting
-#define DXL_ID1                         1
-#define DXL_ID2                         2
+#define DXL_ID1                         3
+#define DXL_ID2                         4
 #define BAUDRATE                        57600
 #define DEVICENAME1                     "/dev/ttyUSB0"
 #define DEVICENAME2                     "/dev/ttyUSB1"
@@ -35,14 +39,14 @@
 #define TORQUE_DISABLE                  0
 #define DXL_MOVING_STATUS_THRESHOLD     50
 
-#define DXL_TORQ_MODE                   0
-#define DXL_EXPOS_MODE                  5
+#define DXL_OPERATING_MODE              0
 #define DXL_CURRENT_LIMIT               600
 #define ESC_ASCII_VALUE                 0x1b
 
 const long unsigned int  SAMPLING_TIME_USEC = 1000;                   // sampling time [us]
 const double             TS      =0.001*0.001*SAMPLING_TIME_USEC;     // sampling time [s]
-const long int           LOOP_COUNT = 1*3600*1000000/SAMPLING_TIME_USEC;  // performance time 120[s]
+// const long int           LOOP_COUNT = 1*3600*1000000/SAMPLING_TIME_USEC;  // performance time 120[s]
+const long int           LOOP_COUNT = 1*3600*1000/SAMPLING_TIME_USEC;  // performance time 120[s]
 
 /*--- 構造体宣言 ----*/
 struct data_parameter{
@@ -63,13 +67,13 @@ struct data_parameter{
   double pitch;
   double yaw;
 
-  int32_t tgt_ang1;
-  int32_t ang1;
+  uint32_t tgt_ang1;
+  uint32_t ang1;
   double tgt_torq1;
   double torq1;
 
-  int32_t tgt_ang2;
-  int32_t ang2;
+  uint32_t tgt_ang2;
+  uint32_t ang2;
   double tgt_torq2;
   double torq2;
 
@@ -103,7 +107,7 @@ int get_date(int mode);
 char kbhit(void);
 int getch();
 void callback(const sensor_msgs::Imu& data);
-void errorProc(int result, uint8 error);
+void errorProc(int result, uint8_t error);
 
 
 /*--- 変数定義 ---*/
@@ -113,7 +117,9 @@ int counter = 0, callback_counter = 0;
 struct data_parameter *ctrl_data;
 IMU_data imu_data;
 
-
+dynamixel::PortHandler *portHandler1 = dynamixel::PortHandler::getPortHandler(DEVICENAME1);
+dynamixel::PortHandler *portHandler2 = dynamixel::PortHandler::getPortHandler(DEVICENAME2);
+dynamixel::PacketHandler *packetHandler = dynamixel::PacketHandler::getPacketHandler(PROTOCOL_VERSION);
 
 int main(int argc, char **argv) {
 
@@ -121,14 +127,18 @@ int main(int argc, char **argv) {
   get_memory();
 
   int i = 0;
+  int mode;
   double a = 0.0401;
   double b = 0.4392;
   double c = 0.0001;
+
+  double val, old_val;
 
   int dxl_comm_result = COMM_TX_FAIL;
   uint8_t dxl_error, dxl_mode;
   uint16_t C1, C2;
   uint16_t aC1, aC2;
+  uint32_t aP1, aP2;
 
 
 
@@ -138,12 +148,10 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "listener");
   ros::NodeHandle n;
   ros::Subscriber sub = n.subscribe("imu/data", 1, callback);  //subscribe[1]はバッファサイズ
-  ros::Rate r(100);  // 100Hz
+  ros::Rate r(300);  // 100Hz
 
   // DXLsetting
-  dynamixel::PortHandler *portHandler1 = dynamixel::PortHandler::getPortHandler(DEVICENAME1);
-  dynamixel::PortHandler *portHandler2 = dynamixel::PortHandler::getPortHandler(DEVICENAME2);
-  dynamixel::PacketHandler *packetHandler = dynamixel::PacketHandler::getPacketHandler(PROTOCOL_VERSION);
+
 
 
   // Open port1, port2
@@ -213,7 +221,18 @@ int main(int argc, char **argv) {
   printf("Succeeded ready ID:%d \n", DXL_ID2);
 
 
+  // matplotlib
+  matplotlib g;
+  g.open();
+  dxl_comm_result = packetHandler->read4ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_POSITION, &aP1, &dxl_error);
+  errorProc(dxl_comm_result, dxl_error);
+  aP1 = aP1*360/4096;
+
+  g.screen(0., aP1 - 180, 10., aP1 + 180);
+
+
   // ---------------------------------------------------------------------------------
+  clock_t st_clock = clock();
 
   while(false == ros::isShuttingDown()) {
     printf("Press any key to continue! (or press ESC to quit!)\n");
@@ -222,11 +241,10 @@ int main(int argc, char **argv) {
 
     if(getch() == ESC_ASCII_VALUE) break;
 
-    get_time_sec(0);
 
     for (i = 0; i < LOOP_COUNT ;i++){
 
-      ctrl_data[i].time = get_time_sec(1);
+      ctrl_data[i].time = (double)(clock() - st_clock)/CLOCKS_PER_SEC;
 
       // IMUデータ取得----------------------
       ros::spinOnce();
@@ -248,8 +266,8 @@ int main(int argc, char **argv) {
       ctrl_data[i].tgt_torq1 = ctrl_data[i].roll*0.01;
       ctrl_data[i].tgt_torq2 = ctrl_data[i].roll*0.02;
 
-      C1 = (a*ctrl_data[i].tgt_torq1^2 + b*ctrl_data[i].tgt_torq1 - c)*1000/2.69;
-      C2 = (a*ctrl_data[i].tgt_torq2^2 + b*ctrl_data[i].tgt_torq2 - c)*1000/2.69;
+      C1 = (a*ctrl_data[i].tgt_torq1*ctrl_data[i].tgt_torq1 + b*ctrl_data[i].tgt_torq1 - c)*1000/2.69;
+      C2 = (a*ctrl_data[i].tgt_torq2*ctrl_data[i].tgt_torq2 + b*ctrl_data[i].tgt_torq2 - c)*1000/2.69;
 
 
       // torq------------------------------
@@ -259,22 +277,45 @@ int main(int argc, char **argv) {
       dxl_comm_result = packetHandler->write2ByteTxRx(portHandler2, DXL_ID2, ADDR_GOAL_CURRENT, C2, &dxl_error);
       errorProc(dxl_comm_result, dxl_error);
 
+      // angle-----------------------------
+      if (i == 0) {
+        ctrl_data[i].tgt_ang1 = aP1;
+      }
+
+      else {
+        val = ctrl_data[i].roll - ctrl_data[i-1].roll;
+        }
+        ctrl_data[i].tgt_ang1 = ctrl_data[i-1].tgt_ang1 + val;
+      }
+
 
       // read------------------------------
       dxl_comm_result = packetHandler->read2ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_CURRENT, &aC1, &dxl_error);
       errorProc(dxl_comm_result, dxl_error);
-      ctrl_data[i].torq1 = (- b + sqrt(b^2-4*a*(c-aC1*2.69/1000)))/2*a
+      ctrl_data[i].torq1 = (- b + sqrt(b*b-4*a*(c-aC1*2.69/1000)))/2*a;
 
       dxl_comm_result = packetHandler->read2ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_CURRENT, &aC2, &dxl_error);
       errorProc(dxl_comm_result, dxl_error);
-      ctrl_data[i].torq2 = (- b + sqrt(b^2-4*a*(c-aC2*2.69/1000)))/2*a
+      ctrl_data[i].torq2 = (- b + sqrt(b*b-4*a*(c-aC2*2.69/1000)))/2*a;
 
+      dxl_comm_result = packetHandler->read4ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_POSITION, &aP1, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+      ctrl_data[i].ang1 = aP1*360/4096;
 
-      printf("time=%03.4f Roll:%03f Tgt_torq1:%03f Torq1:%03f Tgt_torq2:%03f Torq2:%03f\n",
+      dxl_comm_result = packetHandler->read4ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_POSITION, &aP2, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+      ctrl_data[i].ang2 = aP2*360/4096;
+
+      if (i != 0) {
+        g.line(ctrl_data[i-1].time, ctrl_data[i-1].tgt_ang1,ctrl_data[i].time, ctrl_data[i].tgt_ang1, "red");
+        g.line(ctrl_data[i-1].time, ctrl_data[i-1].ang1,ctrl_data[i].time, ctrl_data[i].ang1, "blue");
+      }
+
+      printf("time=%03.4f Roll:%03f Tgt_ANG1:%03d ANG1:%03d Tgt_torq2:%03f Torq2:%03f\n",
               ctrl_data[i].time,
               ctrl_data[i].roll,
-              ctrl_data[i].tgt_torq1,
-              ctrl_data[i].torq1,
+              ctrl_data[i].tgt_ang1,
+              ctrl_data[i].ang1,
               ctrl_data[i].tgt_torq2,
               ctrl_data[i].torq2);
 
@@ -285,7 +326,7 @@ int main(int argc, char **argv) {
 
       // -----------------------------------
 
-      stop_count=i;
+      int stop_count = i;
 
       switch(kbhit()){
         case 'q':
@@ -298,7 +339,7 @@ int main(int argc, char **argv) {
     }
 
     /*引き上げたら終わり*/
-    break
+    break;
   }
 
 
@@ -315,6 +356,9 @@ int main(int argc, char **argv) {
   printf("Succeeded Closeport1!\n");
   portHandler2->closePort();
   printf("Succeeded Closeport2!\n");
+
+  free_memory();
+  printf("Finish!\n");
 
   return 0;
 }
@@ -369,20 +413,6 @@ void get_memory(void){
 
 void free_memory(void){
   free(ctrl_data);
-}
-
-double get_time_sec(int mode){
-  static unsigned long long tsc0=0;
-  unsigned long long tsc1;
-  #define rdtsc(x) __asm__ __volatile__ ("rdtsc" : "=A" (x))
-  if (mode!=0 && tsc0!=0)
-  {
-    rdtsc(tsc1);
-    return (double)(0.000001*(int)((tsc1 - tsc0)*CPU_USEC_PER_CLOCK+0.5));
-  } else {
-    rdtsc(tsc0);
-    return 0;
-  }
 }
 
 char kbhit(void){
