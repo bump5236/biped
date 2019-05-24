@@ -1,3 +1,8 @@
+/*
+2019-05-24 16:51:55
+
+*/
+
 #include "ros/ros.h"
 #include "sensor_msgs/Imu.h"
 #include <math.h>
@@ -339,8 +344,7 @@ int main(int argc, char **argv) {
     }
 
     /*引き上げたら終わり*/
-    break;
-  }
+
 
 
   // End Process--------------------------------------
