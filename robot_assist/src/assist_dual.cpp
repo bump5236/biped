@@ -133,6 +133,7 @@ int main(int argc, char **argv) {
 
   int i = 0;
   int init_F = 100;
+  int mode, stop_count;
 
 
   // DXL[torq - A] 変換係数
@@ -359,7 +360,7 @@ int main(int argc, char **argv) {
         g.line(ctrl_data[i-1].time, ctrl_data[i-1].ang1,ctrl_data[i].time, ctrl_data[i].ang1, "blue");
       }
 
-      printf("time=%03.4f Roll:%03f Tgt_ANG1:%03d ANG1:%03d Tgt_torq2:%03f Torq2:%03f\n",
+      printf("time=%5.3f Roll:%03f Tgt_ANG1:%03f ANG1:%03f Tgt_torq2:%03f Torq2:%03f\n",
               ctrl_data[i].time,
               ctrl_data[i].roll,
               ctrl_data[i].tgt_ang1,
@@ -374,11 +375,11 @@ int main(int argc, char **argv) {
 
       // -----------------------------------
 
-      int stop_count = i + 1;
+      stop_count = i + 1;
 
       switch(kbhit()){
         case 'q':
-          int mode = 99;
+          mode = 99;
           break;
         }
       if(mode == 99)  break;
@@ -423,7 +424,7 @@ int main(int argc, char **argv) {
       ctrl_data[i].torq2,
 
       ctrl_data[i].act1,
-      ctrl_data[i].act2,
+      ctrl_data[i].act2
       );
     }
     fclose(fp);
@@ -444,9 +445,9 @@ int main(int argc, char **argv) {
       errorProc(dxl_comm_result, dxl_error);
       dxl_comm_result = packetHandler->read4ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_POSITION, &golPos2, &dxl_error);
       errorProc(dxl_comm_result, dxl_error);
-    } while(abs(golPos1 - stPos1) < 20 && abs(golPos2 - stPos2) < 20;
+    } while(abs(int(golPos1 - stPos1)) < 20 && abs(int(golPos2 - stPos2)) < 20);
 
-    printf("Restore position")
+    printf("Restore position");
 
     break;
   }
