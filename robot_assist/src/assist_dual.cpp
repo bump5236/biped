@@ -51,12 +51,12 @@
 const long unsigned int  SAMPLING_TIME_USEC = 1000;                   // sampling time [us]
 const double             TS      =0.001*0.001*SAMPLING_TIME_USEC;     // sampling time [s]
 // const long int           LOOP_COUNT = 1*3600*1000000/SAMPLING_TIME_USEC;  // performance time 120[s]
-const long int           LOOP_COUNT = 1*3600*1000/SAMPLING_TIME_USEC;  // performance time 120[s]
+const long int           LOOP_COUNT = 1*3600*1000/SAMPLING_TIME_USEC;
 
 /*--- 構造体宣言 ----*/
 struct data_parameter{
   double time;
-  double rec_mode;
+  int rec_mode;
   double udp_time;
   double fz;
   double ffz;
@@ -72,13 +72,13 @@ struct data_parameter{
   double pitch;
   double yaw;
 
-  uint32_t tgt_ang1;
-  uint32_t ang1;
+  double tgt_ang1;
+  double ang1;
   double tgt_torq1;
   double torq1;
 
-  uint32_t tgt_ang2;
-  uint32_t ang2;
+  double tgt_ang2;
+  double ang2;
   double tgt_torq2;
   double torq2;
 
@@ -106,9 +106,9 @@ public:
 /*--- 関数宣言 ---*/
 void get_memory(void);
 void free_memory(void);
-double get_time_sec(int mode);
+// double get_time_sec(int mode);
 // double ang_vc(double t, int run_mode, int motor_number);  //motorの処理
-int get_date(int mode);
+int get_date(int num);
 char kbhit(void);
 int getch();
 void callback(const sensor_msgs::Imu& data);
@@ -132,21 +132,39 @@ int main(int argc, char **argv) {
   get_memory();
 
   int i = 0;
-  int mode;
+  int init_F = 100;
+
+
+  // DXL[torq - A] 変換係数
   double a = 0.0401;
   double b = 0.4392;
-  double c = 0.0001;
+  double c = -0.0001;
 
   double val, old_val;
 
   int dxl_comm_result = COMM_TX_FAIL;
   uint8_t dxl_error, dxl_mode;
+
+  // mA/2.69---
   uint16_t C1, C2;
   uint16_t aC1, aC2;
+  uint16_t std_cur1 = 140;
+  uint16_t std_cur2 = 240;
+
+  // N---
+  double stTorq1 = 1.8;
+  double stTorq2 = 2.2;
+
+  // deg---
   uint32_t aP1, aP2;
+  double std_ang = 90.0;
+
+  uint32_t stPos1, stPos2;
+  uint32_t golPos1, golPos2;
 
 
-
+  char file_name[256];
+  FILE *fp;
 
 
   // ROSsetting
@@ -240,12 +258,22 @@ int main(int argc, char **argv) {
   clock_t st_clock = clock();
 
   while(false == ros::isShuttingDown()) {
+    /* 初期位置設定 */
+    C1 = (a*stTorq1*stTorq1 + b*stTorq1 + c)*1000/2.69;
+    C2 = (a*stTorq2*stTorq2 + b*stTorq2 + c)*1000/2.69;
+
+    dxl_comm_result = packetHandler->write2ByteTxRx(portHandler1, DXL_ID1, ADDR_GOAL_CURRENT, C1, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
+    dxl_comm_result = packetHandler->write2ByteTxRx(portHandler2, DXL_ID2, ADDR_GOAL_CURRENT, C2, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
+
     printf("Press any key to continue! (or press ESC to quit!)\n");
-
-    /*位置制御でだんだん降ろす*/
-
     if(getch() == ESC_ASCII_VALUE) break;
 
+    dxl_comm_result = packetHandler->read4ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_POSITION, &stPos1, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
+    dxl_comm_result = packetHandler->read4ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_POSITION, &stPos2, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
 
     for (i = 0; i < LOOP_COUNT ;i++){
 
@@ -267,13 +295,37 @@ int main(int argc, char **argv) {
       ctrl_data[i].yaw    = imu_data.yaw*360/(2*M_PI);
 
 
-      // Current setting-------------------
-      ctrl_data[i].tgt_torq1 = ctrl_data[i].roll*0.01;
-      ctrl_data[i].tgt_torq2 = ctrl_data[i].roll*0.02;
+      // Current Calculation-------------------
+      if (i < init_F) {
+        /* だんだん降ろす */
+        ctrl_data[i].tgt_torq1 = stTorq1 - i*0.005;
+        ctrl_data[i].tgt_torq2 = stTorq2 - i*0.005;
+      }
 
-      C1 = (a*ctrl_data[i].tgt_torq1*ctrl_data[i].tgt_torq1 + b*ctrl_data[i].tgt_torq1 - c)*1000/2.69;
-      C2 = (a*ctrl_data[i].tgt_torq2*ctrl_data[i].tgt_torq2 + b*ctrl_data[i].tgt_torq2 - c)*1000/2.69;
+      else {
+        // deg---
+        double posture = ctrl_data[i].roll - std_ang;
+        if (3 < posture < 10) {
+          // 前傾
+          ctrl_data[i].tgt_torq1 = ctrl_data[i-1].torq1 + posture*2;
+        }
 
+        else if (-15 < posture < -5){
+          // 後傾
+          ctrl_data[i].tgt_torq2 = ctrl_data[i-1].torq2 + posture*2;
+        }
+      }
+
+      C1 = (a*ctrl_data[i].tgt_torq1*ctrl_data[i].tgt_torq1 + b*ctrl_data[i].tgt_torq1 + c)*1000/2.69;
+      C2 = (a*ctrl_data[i].tgt_torq2*ctrl_data[i].tgt_torq2 + b*ctrl_data[i].tgt_torq2 + c)*1000/2.69;
+
+      //current CHECK
+      if (abs(C1 - std_cur1) > 50) {
+        C1 = std_cur1 + 50;
+      }
+      if (abs(C2 - std_cur2) > 50) {
+        C2 = std_cur2 + 50;
+      }
 
       // torq------------------------------
       dxl_comm_result = packetHandler->write2ByteTxRx(portHandler1, DXL_ID1, ADDR_GOAL_CURRENT, C1, &dxl_error);
@@ -283,15 +335,6 @@ int main(int argc, char **argv) {
       errorProc(dxl_comm_result, dxl_error);
 
       // angle-----------------------------
-      if (i == 0) {
-        ctrl_data[i].tgt_ang1 = aP1;
-      }
-
-      else {
-        val = ctrl_data[i].roll - ctrl_data[i-1].roll;
-        }
-        ctrl_data[i].tgt_ang1 = ctrl_data[i-1].tgt_ang1 + val;
-      }
 
 
       // read------------------------------
@@ -331,11 +374,11 @@ int main(int argc, char **argv) {
 
       // -----------------------------------
 
-      int stop_count = i;
+      int stop_count = i + 1;
 
       switch(kbhit()){
         case 'q':
-          mode = 99;
+          int mode = 99;
           break;
         }
       if(mode == 99)  break;
@@ -343,7 +386,70 @@ int main(int argc, char **argv) {
       r.sleep();
     }
 
-    /*引き上げたら終わり*/
+    //保存用ファイル作成-----------------------------------
+    sprintf(file_name,"./data/%4d%02d%02d%02d%02d.csv", get_date(1), get_date(2), get_date(3), get_date(4), get_date(5));
+    if( (fp=fopen(file_name,"w") ) == NULL){
+        printf("File not open\n");
+        exit(1);
+    }
+    fprintf(fp,"Time[s], rec_mode, udp_time[s], fz[N], ffz[N], accl_x[m/s^2], accl_y[m/s^2], accl_z[m/s^2], gyro_x[rad/s], gyro_y[rad/s], gyro_z[rad/s], roll[deg], yaw[deg], pitch[deg], tgt_ang1[deg], ang1[deg], tgt_torq1[N], torq1[N], tgt_ang2[deg], ang2[deg], tgt_torq2[N], torq2[N], act1, act2\n");
+    for(i=0;i<stop_count;i++){
+      fprintf(fp,"%5.3f, %d, %5.3f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %5.4f, %d, %d\n",
+      ctrl_data[i].time,
+      ctrl_data[i].rec_mode,
+      ctrl_data[i].udp_time,
+      ctrl_data[i].fz,
+      ctrl_data[i].ffz,
+
+      ctrl_data[i].accl_x,
+      ctrl_data[i].accl_y,
+      ctrl_data[i].accl_z,
+      ctrl_data[i].gyro_x,
+      ctrl_data[i].gyro_y,
+      ctrl_data[i].gyro_z,
+
+      ctrl_data[i].roll,
+      ctrl_data[i].pitch,
+      ctrl_data[i].yaw,
+
+      ctrl_data[i].tgt_ang1,
+      ctrl_data[i].ang1,
+      ctrl_data[i].tgt_torq1,
+      ctrl_data[i].torq1,
+
+      ctrl_data[i].tgt_ang2,
+      ctrl_data[i].ang2,
+      ctrl_data[i].tgt_torq2,
+      ctrl_data[i].torq2,
+
+      ctrl_data[i].act1,
+      ctrl_data[i].act2,
+      );
+    }
+    fclose(fp);
+    printf("save [%s]\n", file_name);
+
+
+    // Restore position---------------------------------
+    C1 = (a*stTorq1*stTorq1 + b*stTorq1 + c)*1000/2.69;
+    C2 = (a*stTorq2*stTorq2 + b*stTorq2 + c)*1000/2.69;
+
+    dxl_comm_result = packetHandler->write2ByteTxRx(portHandler1, DXL_ID1, ADDR_GOAL_CURRENT, C1, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
+    dxl_comm_result = packetHandler->write2ByteTxRx(portHandler2, DXL_ID2, ADDR_GOAL_CURRENT, C2, &dxl_error);
+    errorProc(dxl_comm_result, dxl_error);
+
+    do {
+      dxl_comm_result = packetHandler->read4ByteTxRx(portHandler1, DXL_ID1, ADDR_PRESENT_POSITION, &golPos1, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+      dxl_comm_result = packetHandler->read4ByteTxRx(portHandler2, DXL_ID2, ADDR_PRESENT_POSITION, &golPos2, &dxl_error);
+      errorProc(dxl_comm_result, dxl_error);
+    } while(abs(golPos1 - stPos1) < 20 && abs(golPos2 - stPos2) < 20;
+
+    printf("Restore position")
+
+    break;
+  }
 
 
 
@@ -456,7 +562,7 @@ int getch(){
   return ch;
 }
 
-int get_date(int mode){
+int get_date(int num){
   struct tm *date;
   time_t now;
   int year,month,day;
@@ -471,12 +577,12 @@ int get_date(int mode){
   hour   = date->tm_hour;
   minute = date->tm_min;
   second = date->tm_sec;
-  if(mode == 1) return year;
-  if(mode == 2) return month;
-  if(mode == 3) return day;
-  if(mode == 4) return hour;
-  if(mode == 5) return minute;
-  if(mode == 6) return second;
+  if(num == 1) return year;
+  if(num == 2) return month;
+  if(num == 3) return day;
+  if(num == 4) return hour;
+  if(num == 5) return minute;
+  if(num == 6) return second;
   return 0;
 }
 
