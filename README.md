@@ -21,8 +21,8 @@ $catkin_make
 ```
 
 ## Notice
-If you get error, it might be an error about "dynamixel_sdk".
-One of the causes is absence of "dynamixel_sdk".
-Please refer to the following URL.
+If you get error, it might be an error about "dynamixel_sdk".\
+One of the causes is absence of "dynamixel_sdk".\
+Please refer to the following URL.\
 http://emanual.robotis.com/docs/en/software/dynamixel/dynamixel_sdk/library_setup/cpp_linux/#cpp-linux
 
