@@ -1,0 +1,121 @@
+<?xml version="1.0" ?>
+<robot name="RobotArm_NoCollision">
+
+  <joint name="RobotArm_NoCollision__Joint_Shoulder" type="revolute">
+    <parent link="RobotArm_NoCollision__Dynamixel_Big"/>
+    <child link="RobotArm_NoCollision__Shoulder"/>
+    <origin rpy="0 0 0" xyz="0    0    0.044"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="0.0" lower="-3.1416" upper="3.1416" velocity="0.0"/>
+  </joint>
+
+  <joint name="RobotArm_NoCollision__Joint_LowerArm" type="revolute">
+    <parent link="RobotArm_NoCollision__Shoulder"/>
+    <child link="RobotArm_NoCollision__LowerArm"/>
+    <origin rpy="0 0 0" xyz="0     0     0.0506"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="0.0" lower="-2.1817" upper="2.1817" velocity="0.0"/>
+  </joint>
+
+  <joint name="RobotArm_NoCollision__Joint_Dynamixel" type="fixed">
+    <parent link="RobotArm_NoCollision__LowerArm"/>
+    <child link="RobotArm_NoCollision__Dynamixel_Small"/>
+    <origin rpy="0 0 0" xyz="0    0    0.093"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="0.0" lower="-0.0" upper="0.0" velocity="0.0"/>
+  </joint>
+
+  <joint name="RobotArm_NoCollision__Joint_UpperArm" type="revolute">
+    <parent link="RobotArm_NoCollision__Dynamixel_Small"/>
+    <child link="RobotArm_NoCollision__UpperArm"/>
+    <origin rpy="0     0     1.5708" xyz="0     0     0.0356"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="0.0" lower="-2.1817" upper="2.1817" velocity="0.0"/>
+  </joint>
+
+  <link name="RobotArm_NoCollision__Dynamixel_Big">
+    <inertial>
+      <mass value="0.165"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <inertia ixx="0.00007" ixy="0.0" ixz="0.0" iyy="0.000064" iyz="0.0" izz="0.000043"/>
+    </inertial>
+    <collision name="RobotArm_NoCollision__Dynamixel_Big_collision">
+      <origin rpy="1.57 0   0" xyz="0    0    0.022"/>
+      <geometry>
+        <box size="0.034 0.044 0.059"/>
+      </geometry>
+    </collision>
+    <visual name="RobotArm_NoCollision__Dynamixel_Big_Visual">
+      <origin rpy="1.57 0   0" xyz="0    0    0.022"/>
+      <geometry>
+        <box size="0.034 0.044 0.059"/>
+      </geometry>
+      <material name="Black">
+        <color rgba ="1 1 1 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <link name="RobotArm_NoCollision__Shoulder">
+    <inertial>
+      <mass value="0.092"/>
+      <origin rpy="0 0 0" xyz="0     0     0.0383"/>
+      <inertia ixx="0.000032" ixy="0.0" ixz="0.0" iyy="0.000037" iyz="0.0" izz="0.00002"/>
+    </inertial>
+    <visual name="RobotArm_NoCollision__Shoulder_Visual">
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_Shoulder_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="RobotArm_NoCollision__LowerArm">
+    <inertial>
+      <mass value="0.0376"/>
+      <origin rpy="0 0 0" xyz="0   0   0.07"/>
+      <inertia ixx="0.000055" ixy="0.0" ixz="0.0" iyy="0.000047" iyz="0.0" izz="0.000015"/>
+    </inertial>
+    <visual name="RobotArm_NoCollision__LowerArm_Visual">
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_LowerArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="RobotArm_NoCollision__Dynamixel_Small">
+    <inertial>
+      <mass value="0.082"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <inertia ixx="0.000023" ixy="0.0" ixz="0.0" iyy="0.000021" iyz="0.0" izz="0.000014"/>
+    </inertial>
+    <visual name="RobotArm_NoCollision__Dynamixel_Small_Visual">
+      <origin rpy="0 0 0" xyz="0     0     0.0235"/>
+      <geometry>
+        <box size="0.029 0.034 0.047"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="RobotArm_NoCollision__UpperArm">
+    <inertial>
+      <mass value="0.0757"/>
+      <origin rpy="0 0 0" xyz="0   -0.01  0.14"/>
+      <inertia ixx="0.00025" ixy="0.0" ixz="0.0" iyy="0.00025" iyz="0.0" izz="0.000083"/>
+    </inertial>
+    <collision name="RobotArm_NoCollision__UpperArm_collision">
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_UpperArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual name="RobotArm_NoCollision__UpperArm_Visual">
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_UpperArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+</robot>

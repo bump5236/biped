@@ -1,0 +1,188 @@
+<?xml version="1.0" ?>
+<robot name="RobotArm_NoCollision">
+    
+    <link name="world"/>
+  <!-- body joint & link -->
+  <joint name="body_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child link="base_link"/>
+  </joint>
+  <link name="base_link">
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.03"/>
+      <geometry>
+        <box size="0.3 0.3 0.06"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0.03"/>
+      <geometry>
+        <box size="0.3 0.3 0.06"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0.075"/>
+      <mass value="5"/>
+      <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0"/>
+    </inertial>
+  </link>
+
+    <!-- shoulder joint & shoulder link -->
+  <joint name="shoulder_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="shoulder_link"/>
+    <origin rpy="0 0 0" xyz="0    0    0.06"/>           <!-- 0.044 -->
+    <axis xyz="0 0 1"/>
+    <limit effort="50.0" lower="-3.1416" upper="3.1416" velocity="3.0"/>
+  </joint>
+  
+  <link name="shoulder_link">
+    <inertial>
+      <mass value="0.092"/>
+      <origin rpy="0 0 0" xyz="0     0     0.0383"/>  <!-- 0.0383 -->
+      <inertia ixx="0.000032" ixy="0.0" ixz="0.0" iyy="0.000037" iyz="0.0" izz="0.00002"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_Shoulder_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+    <!-- dxl1 joint & lower link -->
+  <joint name="dxl430_1_joint" type="revolute">
+    <parent link="shoulder_link"/>
+    <child link="lower_link"/>
+    <origin rpy="0 0 0" xyz="0     0     0.0506"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="50.0" lower="-2.1817" upper="2.1817" velocity="3.0"/>
+  </joint>
+
+  <link name="lower_link">
+    <inertial>
+      <mass value="0.0376"/>
+      <origin rpy="0 0 0" xyz="0   0   0.07"/>
+      <inertia ixx="0.000055" ixy="0.0" ixz="0.0" iyy="0.000047" iyz="0.0" izz="0.000015"/>
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_LowerArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_LowerArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+    <!-- state joint & motor link -->
+  <joint name="state_joint" type="fixed">
+    <parent link="lower_link"/>
+    <child link="motor_link"/>
+    <origin rpy="0 0 0" xyz="0    0    0.093"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="0.0" lower="-0.0" upper="0.0" velocity="0.0"/>
+  </joint>
+
+  <link name="motor_link">
+    <inertial>
+      <mass value="0.082"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <inertia ixx="0.000023" ixy="0.0" ixz="0.0" iyy="0.000021" iyz="0.0" izz="0.000014"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0     0     0.0235"/>
+      <geometry>
+        <box size="0.029 0.034 0.047"/>
+      </geometry>
+    </visual>
+  </link>
+
+
+    <!-- dxl2 joint & upper link   -->
+  <joint name="dxl430_2_joint" type="revolute">
+    <parent link="motor_link"/>
+    <child link="upper_link"/>
+    <origin rpy="0     0     1.5708" xyz="0     0     0.0356"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="100.0" lower="-2.1817" upper="2.1817" velocity="2.0"/>
+  </joint>
+
+  <link name="upper_link">
+    <inertial>
+      <mass value="0.0757"/>
+      <origin rpy="0 0 0" xyz="0   -0.01  0.14"/>
+      <inertia ixx="0.00025" ixy="0.0" ixz="0.0" iyy="0.00025" iyz="0.0" izz="0.000083"/>
+    </inertial>
+    <collision>
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_UpperArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin rpy="0 0 0" xyz="0     0    -0.013"/>
+      <geometry>
+        <mesh filename="package://robot_arm/stl/Arm_UpperArm_Simple.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+<!-- transmission -->
+  <transmission name="kata_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="shoulder_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="dxl540_motor">
+       <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+       <mechanismReduction>1</mechanismReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="hiji_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="dxl430_1_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="dxl430_motor1">
+       <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+       <mechanismReduction>1</mechanismReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="tekubi_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="dxl430_2_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="dxl430_motor2">
+       <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+       <mechanismReduction>1</mechanismReduction>
+    </actuator>
+  </transmission>
+
+  <!-- Gazebo -->
+  <gazebo reference="lower_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+    <gazebo reference="upper_link">
+    <material>Gazebo/Red</material>
+  </gazebo>
+
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/RobotArm_NoCollision</robotNamespace>
+      <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+      <legacyModeNS>true</legacyModeNS>
+    </plugin>
+  </gazebo>
+
+</robot>
